@@ -1,6 +1,7 @@
 from utils import OmniglotDataLoader, one_hot_decode, five_hot_decode
 import tensorflow as tf
 import argparse
+import os
 import numpy as np
 from model import NTMOneShotLearningModel
 from tensorflow.python import debug as tf_debug
@@ -31,6 +32,8 @@ def main():
     parser.add_argument('--test_batch_num', type=int, default=100)
     parser.add_argument('--n_train_classes', type=int, default=1200)
     parser.add_argument('--n_test_classes', type=int, default=423)
+    parser.add_argument('--test_frequency', type=int, default=100)
+    parser.add_argument('--save_frequency', type=int, default=5000)
     parser.add_argument('--save_dir', type=str, default='./save/one_shot_learning')
     parser.add_argument('--tensorboard_dir', type=str, default='./summary/one_shot_learning')
     args = parser.parse_args()
@@ -49,7 +52,7 @@ def train(args):
         n_train_classses=args.n_train_classes,
         n_test_classes=args.n_test_classes
     )
-
+    b_start=0
     config=tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
@@ -59,17 +62,19 @@ def train(args):
             saver = tf.train.Saver(max_to_keep=2)
             ckpt = tf.train.get_checkpoint_state(args.save_dir + '/' + args.model)
             saver.restore(sess, ckpt.model_checkpoint_path)
+            #b_start=int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
+            print('Starting from step %d'%(b_start))
         else:
             saver = tf.train.Saver(tf.global_variables(),max_to_keep=2)
             tf.global_variables_initializer().run()
         train_writer = tf.summary.FileWriter(args.tensorboard_dir + '/' + args.model, sess.graph)
         print(args)
         print("batch\tloss\t1st\t2nd\t3rd\t4th\t5th\t6th\t7th\t8th\t9th\t10th")
-        for b in range(args.num_epoches):
+        for b in range(b_start, args.num_epoches):
 
             # Test
 
-            if b % 100 == 0:
+            if b % args.test_frequency == 0:
                 x_image, x_label, y = data_loader.fetch_batch(args.n_classes, args.batch_size, args.seq_length,
                                                               type='test',
                                                               augment=args.augment,
@@ -82,14 +87,19 @@ def train(args):
                 # with open('state_long.txt', 'w') as f:
                 #     print(state_list, file=f)
                 print('%d\t%.4f\t' % (b, learning_loss)),
+
+                shot_eval=0
                 accuracy = test_f(args, y, output)
                 for accu in accuracy:
+                    shot_eval+=1
+                    shot_summary = tf.Summary(value=[tf.Summary.Value(tag='%d-shot'%(shot_eval),simple_value=accu)])
+                    train_writer.add_summary(shot_summary, b)
                     print('%.4f\t' % accu),
                 print('')
 
             # Save model
 
-            if b % 5000 == 0 and b > 0:
+            if b % args.save_frequency == 0 and b > 0:
                 saver.save(sess, args.save_dir + '/' + args.model + '/model.tfmodel', global_step=b)
 
             # Train
@@ -130,11 +140,13 @@ def test(args):
             output_list.append(output)
             loss_list.append(learning_loss)
         accuracy = test_f(args, np.concatenate(y_list, axis=0), np.concatenate(output_list, axis=0))
+        
         for accu in accuracy:
             print('%.4f\t' % accu),
         print(np.mean(loss_list))
 
 
+#warning -> episode length must be >= 11
 def test_f(args, y, output):
     correct = [0] * args.seq_length
     total = [0] * args.seq_length

@@ -56,7 +56,7 @@ class OmniglotDataLoader:
 
     def fetch_batch(self, n_classes, batch_size, seq_length,
                     type='train',
-                    sample_strategy='random',
+                    sample_strategy='uniform',
                     augment=True,
                     label_type='one_hot'):
         if type == 'train':
@@ -71,7 +71,7 @@ class OmniglotDataLoader:
                    for i in range(batch_size)])
             for i in range(batch_size):
                 np.random.shuffle(seq[i, :])
-        self.rand_rotate_init(n_classes, batch_size)
+
         seq_pic = [[self.augment(data[classes[i][j]][np.random.randint(0, len(data[classes[i][j]]))],
                                  batch=i, c=j,
                                  only_resize=not augment)
@@ -96,15 +96,20 @@ class OmniglotDataLoader:
     def rand_rotate_init(self, n_classes, batch_size):
         self.rand_rotate_map = np.random.randint(0, 4, [batch_size, n_classes])
 
-    def augment(self, image, batch, c, only_resize=False):
+    def augment(self, image, batch, c, only_resize=False,max_rotate=7,max_translate=7):
         if only_resize:
-            image = ImageOps.invert(image.convert('L')).resize(self.image_size)
+            image = ImageOps.invert(image.convert('L')).resize(self.image_size,resample=Image.BILINEAR)
         else:
-            rand_rotate = self.rand_rotate_map[batch, c] * 90                       # rotate by 0, pi/2, pi, 3pi/2
+            #max rotate is 7 degrees
+            rand_rotate=(np.random.rand()-0.5)*2*max_rotate 
+            #max translate is 7 pixels
+            rand_translate=(np.random.rand(2)-0.5)*2*max_translate # (-7,7) -> (x_translation,y_translation)
+
             image = ImageOps.invert(image.convert('L')) \
-                .rotate(rand_rotate + np.random.rand() * 22.5 - 11.25,
-                        translate=np.random.randint(-10, 11, size=2).tolist()) \
-                .resize(self.image_size)   # rotate between -pi/16 to pi/16, translate bewteen -10 and 10
+                .rotate(rand_rotate) \
+                .transform(image.size, Image.AFFINE, (1, 0, rand_translate[0], 0, 1, rand_translate[1])) \
+                .resize(self.image_size,resample=Image.BILINEAR)   # rotate between (-7,7), translate bewteen (-7,7)
+ 
         np_image = np.reshape(np.array(image, dtype=np.float32),
                           newshape=(self.image_size[0] * self.image_size[1]))
         max_value = np.max(np_image)    # normalization is important
