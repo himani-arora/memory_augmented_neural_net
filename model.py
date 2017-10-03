@@ -18,7 +18,7 @@ class NTMCopyModel():
                 return tf.nn.rnn_cell.BasicLSTMCell(rnn_size, reuse=reuse)
             cell = tf.nn.rnn_cell.MultiRNNCell([rnn_cell(args.rnn_size) for _ in range(args.rnn_num_layers)])
         elif args.model == 'NTM':
-            import ntm.ntm_cell as ntm_cell
+            import ntm_cell as ntm_cell
             cell = ntm_cell.NTMCell(args.rnn_size, args.memory_size, args.memory_vector_dim, 1, 1,
                                     addressing_mode='content_and_location',
                                     reuse=reuse,
@@ -72,18 +72,18 @@ class NTMOneShotLearningModel():
                 return tf.nn.rnn_cell.BasicLSTMCell(rnn_size)
             cell = tf.nn.rnn_cell.MultiRNNCell([rnn_cell(args.rnn_size) for _ in range(args.rnn_num_layers)])
         elif args.model == 'NTM':
-            import ntm.ntm_cell as ntm_cell
+            import ntm_cell as ntm_cell
             cell = ntm_cell.NTMCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
                                     read_head_num=args.read_head_num,
                                     write_head_num=args.write_head_num,
                                     addressing_mode='content_and_location',
                                     output_dim=args.output_dim)
         elif args.model == 'MANN':
-            import ntm.mann_cell as mann_cell
+            import mann_cell as mann_cell
             cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
                                     head_num=args.read_head_num)
         elif args.model == 'MANN2':
-            import ntm.mann_cell_2 as mann_cell
+            import mann_cell_2 as mann_cell
             cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
                                     head_num=args.read_head_num)
 

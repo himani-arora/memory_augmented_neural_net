@@ -8,31 +8,31 @@ from tensorflow.python import debug as tf_debug
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', default="train")
-    parser.add_argument('--restore_training', default=False)
-    parser.add_argument('--debug', default=False)
-    parser.add_argument('--label_type', default="one_hot", help='one_hot or five_hot')
-    parser.add_argument('--n_classes', default=5)
-    parser.add_argument('--seq_length', default=50)
-    parser.add_argument('--augment', default=True)
-    parser.add_argument('--model', default="MANN", help='LSTM, MANN, MANN2 or NTM')
-    parser.add_argument('--read_head_num', default=4)
-    parser.add_argument('--batch_size', default=16)
-    parser.add_argument('--num_epoches', default=100000)
-    parser.add_argument('--learning_rate', default=1e-3)
-    parser.add_argument('--rnn_size', default=200)
-    parser.add_argument('--image_width', default=20)
-    parser.add_argument('--image_height', default=20)
-    parser.add_argument('--rnn_num_layers', default=1)
-    parser.add_argument('--memory_size', default=128)
-    parser.add_argument('--memory_vector_dim', default=40)
-    parser.add_argument('--shift_range', default=1, help='Only for model=NTM')
-    parser.add_argument('--write_head_num', default=1, help='Only for model=NTM. For MANN #(write_head) = #(read_head)')
-    parser.add_argument('--test_batch_num', default=100)
-    parser.add_argument('--n_train_classes', default=1200)
-    parser.add_argument('--n_test_classes', default=423)
-    parser.add_argument('--save_dir', default='./save/one_shot_learning')
-    parser.add_argument('--tensorboard_dir', default='./summary/one_shot_learning')
+    parser.add_argument('--mode', type=str, default="train")
+    parser.add_argument('--restore_training', default=False, action="store_true")
+    parser.add_argument('--debug', default=False, action="store_true")
+    parser.add_argument('--label_type', type=str, default="one_hot", help='one_hot or five_hot')
+    parser.add_argument('--n_classes', type=int, default=5)
+    parser.add_argument('--seq_length', type=int, default=50)
+    parser.add_argument('--augment', default=False, action="store_true")
+    parser.add_argument('--model', type=str, default="MANN", help='LSTM, MANN, MANN2 or NTM')
+    parser.add_argument('--read_head_num', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_epoches', type=int, default=100000)
+    parser.add_argument('--learning_rate', type=float, default=1e-3)
+    parser.add_argument('--rnn_size', type=int, default=200)
+    parser.add_argument('--image_width', type=int, default=20)
+    parser.add_argument('--image_height', type=int, default=20)
+    parser.add_argument('--rnn_num_layers', type=int, default=1)
+    parser.add_argument('--memory_size', type=int, default=128)
+    parser.add_argument('--memory_vector_dim', type=int, default=40)
+    parser.add_argument('--shift_range', type=int, default=1, help='Only for model=NTM')
+    parser.add_argument('--write_head_num', type=int, default=1, help='Only for model=NTM. For MANN #(write_head) = #(read_head)')
+    parser.add_argument('--test_batch_num', type=int, default=100)
+    parser.add_argument('--n_train_classes', type=int, default=1200)
+    parser.add_argument('--n_test_classes', type=int, default=423)
+    parser.add_argument('--save_dir', type=str, default='./save/one_shot_learning')
+    parser.add_argument('--tensorboard_dir', type=str, default='./summary/one_shot_learning')
     args = parser.parse_args()
     if args.mode == 'train':
         train(args)
@@ -41,25 +41,30 @@ def main():
 
 
 def train(args):
+    print("Initializing model...")
     model = NTMOneShotLearningModel(args)
+    print("Initializing data loader...")
     data_loader = OmniglotDataLoader(
         image_size=(args.image_width, args.image_height),
         n_train_classses=args.n_train_classes,
         n_test_classes=args.n_test_classes
     )
-    with tf.Session() as sess:
+
+    config=tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    with tf.Session(config=config) as sess:
         if args.debug:
             sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         if args.restore_training:
-            saver = tf.train.Saver()
+            saver = tf.train.Saver(max_to_keep=2)
             ckpt = tf.train.get_checkpoint_state(args.save_dir + '/' + args.model)
             saver.restore(sess, ckpt.model_checkpoint_path)
         else:
-            saver = tf.train.Saver(tf.global_variables())
+            saver = tf.train.Saver(tf.global_variables(),max_to_keep=2)
             tf.global_variables_initializer().run()
         train_writer = tf.summary.FileWriter(args.tensorboard_dir + '/' + args.model, sess.graph)
         print(args)
-        print("1st\t2nd\t3rd\t4th\t5th\t6th\t7th\t8th\t9th\t10th\tbatch\tloss")
+        print("batch\tloss\t1st\t2nd\t3rd\t4th\t5th\t6th\t7th\t8th\t9th\t10th")
         for b in range(args.num_epoches):
 
             # Test
@@ -76,10 +81,11 @@ def train(args):
                 # state_list = sess.run(model.state_list, feed_dict=feed_dict)  # For debugging
                 # with open('state_long.txt', 'w') as f:
                 #     print(state_list, file=f)
+                print('%d\t%.4f\t' % (b, learning_loss)),
                 accuracy = test_f(args, y, output)
                 for accu in accuracy:
-                    print('%.4f' % accu, end='\t')
-                print('%d\t%.4f' % (b, learning_loss))
+                    print('%.4f\t' % accu),
+                print('')
 
             # Save model
 
@@ -97,7 +103,9 @@ def train(args):
 
 
 def test(args):
+    print("Initializing model...")
     model = NTMOneShotLearningModel(args)
+    print("Initializing data loader...")
     data_loader = OmniglotDataLoader(
         image_size=(args.image_width, args.image_height),
         n_train_classses=args.n_train_classes,
@@ -123,7 +131,7 @@ def test(args):
             loss_list.append(learning_loss)
         accuracy = test_f(args, np.concatenate(y_list, axis=0), np.concatenate(output_list, axis=0))
         for accu in accuracy:
-            print('%.4f' % accu, end='\t')
+            print('%.4f\t' % accu),
         print(np.mean(loss_list))
 
 

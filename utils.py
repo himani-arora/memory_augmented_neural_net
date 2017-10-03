@@ -36,7 +36,7 @@ def baseN(num,b):
 
 
 class OmniglotDataLoader:
-    def __init__(self, data_dir='./data', image_size=(20, 20), n_train_classses=1200, n_test_classes=423):
+    def __init__(self, data_dir='/home/himani/data/omniglot_raw', image_size=(20, 20), n_train_classses=1200, n_test_classes=423):
         self.data = []
         self.image_size = image_size
         for dirname, subdirname, filelist in os.walk(data_dir):
