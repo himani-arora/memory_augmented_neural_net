@@ -22,20 +22,23 @@ def main():
     parser.add_argument('--num_epoches', type=int, default=100000)
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--rnn_size', type=int, default=200)
-    parser.add_argument('--image_width', type=int, default=20)
-    parser.add_argument('--image_height', type=int, default=20)
+    parser.add_argument('--image_width', type=int, default=64)
+    parser.add_argument('--image_height', type=int, default=64)
+    parser.add_argument('--image_channel', type=int, default=3)
     parser.add_argument('--rnn_num_layers', type=int, default=1)
     parser.add_argument('--memory_size', type=int, default=128)
     parser.add_argument('--memory_vector_dim', type=int, default=40)
     parser.add_argument('--shift_range', type=int, default=1, help='Only for model=NTM')
     parser.add_argument('--write_head_num', type=int, default=1, help='Only for model=NTM. For MANN #(write_head) = #(read_head)')
     parser.add_argument('--test_batch_num', type=int, default=100)
-    parser.add_argument('--n_train_classes', type=int, default=1200)
-    parser.add_argument('--n_test_classes', type=int, default=423)
+    parser.add_argument('--n_train_classes', type=int, default=64)
+    parser.add_argument('--n_test_classes', type=int, default=16)
     parser.add_argument('--test_frequency', type=int, default=100)
     parser.add_argument('--save_frequency', type=int, default=5000)
     parser.add_argument('--save_dir', type=str, default='./save/one_shot_learning')
     parser.add_argument('--tensorboard_dir', type=str, default='./summary/one_shot_learning')
+    parser.add_argument('--embedder', type=str, default='', help='None/CNN')
+    parser.add_argument('--embed_dim', type=int, default=128, help='Only when using CNN embedder')
     args = parser.parse_args()
     if args.mode == 'train':
         train(args)
@@ -48,7 +51,7 @@ def train(args):
     model = NTMOneShotLearningModel(args)
     print("Initializing data loader...")
     data_loader = OmniglotDataLoader(
-        image_size=(args.image_width, args.image_height),
+        image_size=(args.image_width, args.image_height, args.image_channel),
         n_train_classses=args.n_train_classes,
         n_test_classes=args.n_test_classes
     )
@@ -62,7 +65,7 @@ def train(args):
             saver = tf.train.Saver(max_to_keep=2)
             ckpt = tf.train.get_checkpoint_state(args.save_dir + '/' + args.model)
             saver.restore(sess, ckpt.model_checkpoint_path)
-            #b_start=int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
+            b_start=int(os.path.basename(ckpt.model_checkpoint_path).split('-')[1])
             print('Starting from step %d'%(b_start))
         else:
             saver = tf.train.Saver(tf.global_variables(),max_to_keep=2)
@@ -79,7 +82,7 @@ def train(args):
                                                               type='test',
                                                               augment=args.augment,
                                                               label_type=args.label_type)
-                feed_dict = {model.x_image: x_image, model.x_label: x_label, model.y: y}
+                feed_dict = {model.x_image: x_image, model.x_label: x_label, model.y: y, model.is_training: False}
                 output, learning_loss = sess.run([model.o, model.learning_loss], feed_dict=feed_dict)
                 merged_summary = sess.run(model.learning_loss_summary, feed_dict=feed_dict)
                 train_writer.add_summary(merged_summary, b)
@@ -108,7 +111,7 @@ def train(args):
                                                           type='train',
                                                           augment=args.augment,
                                                           label_type=args.label_type)
-            feed_dict = {model.x_image: x_image, model.x_label: x_label, model.y: y}
+            feed_dict = {model.x_image: x_image, model.x_label: x_label, model.y: y,model.is_training: True}
             sess.run(model.train_op, feed_dict=feed_dict)
 
 

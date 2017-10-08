@@ -61,11 +61,15 @@ class NTMOneShotLearningModel():
             args.output_dim = 25
 
         self.x_image = tf.placeholder(dtype=tf.float32,
-                                      shape=[args.batch_size, args.seq_length, args.image_width * args.image_height])
+                                      shape=[args.batch_size, args.seq_length, args.image_width * args.image_height* args.image_channel])
         self.x_label = tf.placeholder(dtype=tf.float32,
                                       shape=[args.batch_size, args.seq_length, args.output_dim])
         self.y = tf.placeholder(dtype=tf.float32,
                                 shape=[args.batch_size, args.seq_length, args.output_dim])
+        self.is_training=tf.placeholder(tf.bool)
+
+        if args.embedder == 'CNN':
+            self.embedder = LeNet(args.image_height, args.image_width, args.image_channel, args.embed_dim)
 
         if args.model == 'LSTM':
             def rnn_cell(rnn_size):
@@ -91,7 +95,16 @@ class NTMOneShotLearningModel():
         self.state_list = [state]   # For debugging
         self.o = []
         for t in range(args.seq_length):
-            output, state = cell(tf.concat([self.x_image[:, t, :], self.x_label[:, t, :]], axis=1), state)
+            
+            if args.embedder == 'CNN':
+                self.x_batch=self.embedder.core_builder(self.x_image[:, t, :],self.is_training)
+            else:
+                self.x_batch=self.x_image[:, t, :]
+
+            print('X batch input shape: %s'%(self.x_batch.get_shape()))
+
+            output, state = cell(tf.concat([self.x_batch, self.x_label[:, t, :]], axis=1), state)
+            print('MANN cell output shape: %s'%(output.get_shape()))
             # output, state = cell(self.y[:, t, :], state)
             with tf.variable_scope("o2o", reuse=(t > 0)):
                 o2o_w = tf.get_variable('o2o_w', [output.get_shape()[1], args.output_dim],
@@ -101,6 +114,7 @@ class NTMOneShotLearningModel():
                                         initializer=tf.random_uniform_initializer(minval=-0.1, maxval=0.1))
                                         # initializer=tf.random_normal_initializer(mean=0.0, stddev=0.1))
                 output = tf.nn.xw_plus_b(output, o2o_w, o2o_b)
+            print('FC output shape: %s'%(output.get_shape()))
             if args.label_type == 'one_hot':
                 output = tf.nn.softmax(output, dim=1)
             elif args.label_type == 'five_hot':
@@ -131,3 +145,84 @@ class NTMOneShotLearningModel():
             # capped_gvs = [(tf.clip_by_value(grad, -10., 10.), var) for grad, var in gvs]
             # self.train_op = self.optimizer.apply_gradients(gvs)
             self.train_op = self.optimizer.minimize(self.learning_loss)
+
+
+class LeNet(object):
+  """Standard CNN architecture."""
+
+  def __init__(self,image_height,image_width, num_channels, hidden_dim):
+    self.image_height= image_height
+    self.image_width= image_width
+    self.num_channels = num_channels
+    self.hidden_dim = hidden_dim
+    self.matrix_init = tf.truncated_normal_initializer(stddev=0.1)
+    self.vector_init = tf.constant_initializer(0.0)
+
+    ch1 = 64  # number of channels in 1st layer
+    ch2 = 64  # number of channels in 2nd layer
+    ch3 = 64  # number of channels in 3rd layer
+    ch4 = 64  # number of channels in 4th layer
+
+    with tf.variable_scope('embedder', reuse=False):
+
+        self.conv1_weights = tf.get_variable('conv1_w',[3, 3, self.num_channels, ch1],
+            initializer=self.matrix_init)
+        self.conv1_biases = tf.get_variable('conv1_b', [ch1],initializer=self.vector_init)
+
+        self.conv2_weights = tf.get_variable('conv2_w', [3, 3, ch1, ch2],
+            initializer=self.matrix_init)
+        self.conv2_biases = tf.get_variable('conv2_b', [ch2],initializer=self.vector_init)
+
+        self.conv3_weights = tf.get_variable('conv3_w', [3, 3, ch2, ch3],
+            initializer=self.matrix_init)
+        self.conv3_biases = tf.get_variable('conv3_b', [ch3],initializer=self.vector_init)
+
+        self.conv4_weights = tf.get_variable('conv4_w', [3, 3, ch3, ch4],
+            initializer=self.matrix_init)
+        self.conv4_biases = tf.get_variable('conv4_b', [ch4],initializer=self.vector_init)
+    
+        # fully connected
+        self.fc1_weights = tf.get_variable(
+            'fc1_w', [self.image_width // 16 * self.image_height // 16 * ch4,self.hidden_dim], 
+            initializer=self.matrix_init)
+        self.fc1_biases = tf.get_variable('fc1_b', [self.hidden_dim],initializer=self.vector_init)
+
+  def core_builder(self, x, phase):
+    """Embeds x using standard CNN architecture.
+
+    Args:
+      x: Batch of images as a 2-d Tensor [batch_size, -1].
+
+    Returns:
+      A 2-d Tensor [batch_size, hidden_dim] of embedded images.
+    """
+
+    # define model
+    x = tf.reshape(x,
+                   [-1, self.image_height, self.image_width, self.num_channels])
+    batch_size = tf.shape(x)[0]
+
+    conv1 = tf.nn.conv2d(x, self.conv1_weights,strides=[1, 1, 1, 1], padding='SAME')
+    #conv1=tf.contrib.layers.batch_norm(conv1, center=True, is_training=phase)
+    relu1 = tf.nn.relu(tf.nn.bias_add(conv1, self.conv1_biases))
+    pool1 = tf.nn.max_pool(relu1, ksize=[1, 2, 2, 1],strides=[1, 2, 2, 1], padding='SAME')
+
+    conv2 = tf.nn.conv2d(pool1, self.conv2_weights,strides=[1, 1, 1, 1], padding='SAME')
+    #conv2=tf.contrib.layers.batch_norm(conv2, center=True, is_training=phase)
+    relu2 = tf.nn.relu(tf.nn.bias_add(conv2, self.conv2_biases))
+    pool2 = tf.nn.max_pool(relu2, ksize=[1, 2, 2, 1],strides=[1, 2, 2, 1], padding='SAME')
+
+    conv3 = tf.nn.conv2d(pool2, self.conv3_weights,strides=[1, 1, 1, 1], padding='SAME')
+    #conv3=tf.contrib.layers.batch_norm(conv3, center=True, is_training=phase)
+    relu3 = tf.nn.relu(tf.nn.bias_add(conv3, self.conv3_biases))
+    pool3 = tf.nn.max_pool(relu3, ksize=[1, 2, 2, 1],strides=[1, 2, 2, 1], padding='SAME')
+
+    conv4 = tf.nn.conv2d(pool3, self.conv4_weights,strides=[1, 1, 1, 1], padding='SAME')
+    #conv4=tf.contrib.layers.batch_norm(conv4, center=True, is_training=phase)
+    relu4 = tf.nn.relu(tf.nn.bias_add(conv4, self.conv4_biases))
+    pool4 = tf.nn.max_pool(relu4, ksize=[1, 2, 2, 1],strides=[1, 2, 2, 1], padding='SAME')
+
+    reshape = tf.reshape(pool4, [batch_size, -1])
+    hidden = tf.matmul(reshape, self.fc1_weights) + self.fc1_biases
+
+    return hidden

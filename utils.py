@@ -2,6 +2,7 @@ import numpy as np
 import os
 from PIL import Image
 from PIL import ImageOps
+import pickle
 # from skimage import io
 # from skimage import transform
 # from skimage import util
@@ -36,20 +37,11 @@ def baseN(num,b):
 
 
 class OmniglotDataLoader:
-    def __init__(self, data_dir='/home/himani/data/omniglot_raw', image_size=(20, 20), n_train_classses=1200, n_test_classes=423):
-        self.data = []
+    def __init__(self, data_dir='/home/himani/data/tiny-imagenet-200/mann_data.pkl', image_size=(64, 64, 3), n_train_classses=64, n_test_classes=16):
         self.image_size = image_size
-        for dirname, subdirname, filelist in os.walk(data_dir):
-            if filelist:
-                self.data.append(
-                    # [np.reshape(
-                    #     np.array(Image.open(dirname + '/' + filename).resize(image_size), dtype=np.float32),
-                    #     newshape=(image_size[0] * image_size[1])
-                    #     )
-                    #     for filename in filelist]
-                    # [io.imread(dirname + '/' + filename).astype(np.float32) / 255 for filename in filelist]
-                    [Image.open(dirname + '/' + filename).copy() for filename in filelist]
-                )
+        
+        with open(data_dir, 'rb') as f:
+            self.data=pickle.load(f)
 
         self.train_data = self.data[:n_train_classses]
         self.test_data = self.data[-n_test_classes:]
@@ -73,8 +65,7 @@ class OmniglotDataLoader:
                 np.random.shuffle(seq[i, :])
 
         seq_pic = [[self.augment(data[classes[i][j]][np.random.randint(0, len(data[classes[i][j]]))],
-                                 batch=i, c=j,
-                                 only_resize=not augment)
+                                 batch=i, c=j)
                    for j in seq[i, :]]
                    for i in range(batch_size)]
         if label_type == 'one_hot':
@@ -96,36 +87,11 @@ class OmniglotDataLoader:
     def rand_rotate_init(self, n_classes, batch_size):
         self.rand_rotate_map = np.random.randint(0, 4, [batch_size, n_classes])
 
-    def augment(self, image, batch, c, only_resize=False,max_rotate=7,max_translate=7):
-        if only_resize:
-            image = ImageOps.invert(image.convert('L')).resize(self.image_size,resample=Image.BILINEAR)
-        else:
-            #max rotate is 7 degrees
-            rand_rotate=(np.random.rand()-0.5)*2*max_rotate 
-            #max translate is 7 pixels
-            rand_translate=(np.random.rand(2)-0.5)*2*max_translate # (-7,7) -> (x_translation,y_translation)
-
-            image = ImageOps.invert(image.convert('L')) \
-                .rotate(rand_rotate) \
-                .transform(image.size, Image.AFFINE, (1, 0, rand_translate[0], 0, 1, rand_translate[1])) \
-                .resize(self.image_size,resample=Image.BILINEAR)   # rotate between (-7,7), translate bewteen (-7,7)
- 
-        np_image = np.reshape(np.array(image, dtype=np.float32),
-                          newshape=(self.image_size[0] * self.image_size[1]))
+    def augment(self, image, batch, c):
+        np_image = np.array(image, dtype=np.float32)
+        np_image = np.reshape(np_image,
+                          newshape=(self.image_size[0] * self.image_size[1]* self.image_size[2]))
         max_value = np.max(np_image)    # normalization is important
         if max_value > 0.:
             np_image = np_image / max_value
         return np_image
-        # mat = transform.AffineTransform(translation=np.random.randint(-10, 11, size=2).tolist())
-        # return np.reshape(
-        #     util.invert(
-        #         transform.resize(
-        #             transform.warp(
-        #                 transform.rotate(
-        #                     util.invert(image),
-        #                     angle=rand_rotate + np.random.rand() * 22.5 - 11.25
-        #                 ), mat
-        #             ), output_shape=self.image_size
-        #         )
-        #     ), newshape=(self.image_size[0] * self.image_size[1])
-        # )
