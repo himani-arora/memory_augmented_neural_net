@@ -56,6 +56,10 @@ def train(args):
     config=tf.ConfigProto()
     config.gpu_options.allow_growth = True
     with tf.Session(config=config) as sess:
+        if not os.path.exists(args.tensorboard_dir):
+            os.makedirs(args.tensorboard_dir)
+        if not os.path.exists(args.save_dir):
+            os.makedirs(args.save_dir)
         if args.debug:
             sess = tf_debug.LocalCLIDebugWrapperSession(sess)
         if args.restore_training:
@@ -67,6 +71,7 @@ def train(args):
         else:
             saver = tf.train.Saver(tf.global_variables(),max_to_keep=2)
             tf.global_variables_initializer().run()
+
         train_writer = tf.summary.FileWriter(args.tensorboard_dir + '/' + args.model, sess.graph)
         print(args)
         print("batch\tloss\t1st\t2nd\t3rd\t4th\t5th\t6th\t7th\t8th\t9th\t10th")

@@ -2,11 +2,12 @@ import tensorflow as tf
 import numpy as np
 
 class MANNCell():
-    def __init__(self, rnn_size, memory_size, memory_vector_dim, head_num, gamma=0.95,
+    def __init__(self, rnn_size, memory_size, memory_vector_dim, output_dim, head_num, gamma=0.95,
                  reuse=False, k_strategy='separate'):
         self.rnn_size = rnn_size
         self.memory_size = memory_size
         self.memory_vector_dim = memory_vector_dim
+        self.output_dim = output_dim
         self.head_num = head_num                                    # #(read head) == #(write head)
         self.reuse = reuse
         self.controller = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size)
@@ -14,7 +15,7 @@ class MANNCell():
         self.gamma = gamma
         self.k_strategy = k_strategy
 
-    def __call__(self, x, prev_state):
+    def __call__(self, x, x_label, prev_state):
         prev_read_vector_list = prev_state['read_vector_list']      # read vector (the content that is read out, length = memory_vector_dim)
         prev_controller_state = prev_state['controller_state']      # state of controller (LSTM hidden state)
 
@@ -44,8 +45,10 @@ class MANNCell():
         # k, prev_M -> w_r
         # alpha, prev_w_r, prev_w_lu -> w_w
 
-        prev_w_r_list = prev_state['w_r_list']      # vector of weightings (blurred address) over locations
+        prev_w_r_list = prev_state['w_r_list']      # vector of read weightings (blurred address) over locations
+        prev_w_w_list = prev_state['w_w_list']      # vector of write weightings (blurred address) over locations
         prev_M = prev_state['M']
+        prev_Mv = prev_state['Mv']
         prev_w_u = prev_state['w_u']
         prev_indices, prev_w_lu = self.least_used(prev_w_u)
         w_r_list = []
@@ -73,30 +76,54 @@ class MANNCell():
         # Set least used memory location computed from w_(t-1)^u to zero
 
         M_ = prev_M * tf.expand_dims(1. - tf.one_hot(prev_indices[:, -1], self.memory_size), dim=2)
+        Mv_ = prev_Mv * tf.expand_dims(1. - tf.one_hot(prev_indices[:, -1], self.memory_size), dim=2)
 
         # Writing
 
         M = M_
+        Mv = Mv_
         with tf.variable_scope('writing'):
             for i in range(self.head_num):
+                
                 w = tf.expand_dims(w_w_list[i], axis=2)
+                print('Shape of w_w_list[i]: %s'%(w_w_list[i].get_shape()))
+                print('Shape of w: %s'%(w.get_shape()))
+
+                prev_w = tf.expand_dims(prev_w_w_list[i], axis=2)
                 if self.k_strategy == 'summary':
                     k = tf.expand_dims(k_list[i], axis=1)
                 elif self.k_strategy == 'separate':
                     k = tf.expand_dims(a_list[i], axis=1)
+
+                print('Shape of k_list[i]: %s'%(k_list[i].get_shape()))
+                print('Shape of k: %s'%(k.get_shape()))
+
+                x_label_ = tf.expand_dims(x_label, axis=1)
+                print('Shape of x_label: %s'%(x_label.get_shape()))
+                print('Shape of x_label_: %s'%(x_label_.get_shape()))
+
                 M = M + tf.matmul(w, k)
+                Mv = Mv + tf.matmul(prev_w, x_label_) #writing previous label 
 
         # Reading
 
         read_vector_list = []
+        read_value_list = []
         with tf.variable_scope('reading'):
             for i in range(self.head_num):
                 read_vector = tf.reduce_sum(tf.expand_dims(w_r_list[i], dim=2) * M, axis=1)
                 read_vector_list.append(read_vector)
 
+                read_value = tf.reduce_sum(tf.expand_dims(w_r_list[i], dim=2) * Mv, axis=1)
+                read_value_list.append(read_value)
+
         # controller_output -> NTM output
 
-        NTM_output = tf.concat([controller_output] + read_vector_list, axis=1)
+        print('Length of read_value_list: %d'%len(read_value_list))
+        print('Shape of read_value_list[0]: %s'%read_value_list[0].get_shape())
+        #NTM_output2 = tf.concat([controller_output] + read_vector_list, axis=1)
+        NTM_output = tf.concat([] + read_value_list, axis=1) #now output is head_num x output_dim
+        print('Shape of NTM_output: %s'%NTM_output.get_shape())
 
         state = {
             'controller_state': controller_state,
@@ -105,6 +132,7 @@ class MANNCell():
             'w_w_list': w_w_list,
             'w_u': w_u,
             'M': M,
+            'Mv': Mv
         }
 
         self.step += 1
@@ -151,7 +179,9 @@ class MANNCell():
                 'read_vector_list': [tf.zeros([batch_size, self.memory_vector_dim])
                                      for _ in range(self.head_num)],
                 'w_r_list': [one_hot_weight_vector for _ in range(self.head_num)],
+                'w_w_list': [one_hot_weight_vector for _ in range(self.head_num)],
                 'w_u': one_hot_weight_vector,
-                'M': tf.constant(np.ones([batch_size, self.memory_size, self.memory_vector_dim]) * 1e-6, dtype=tf.float32)
+                'M': tf.constant(np.ones([batch_size, self.memory_size, self.memory_vector_dim]) * 1e-6, dtype=tf.float32),
+                'Mv': tf.constant(np.ones([batch_size, self.memory_size, self.output_dim]) * 1e-6, dtype=tf.float32)
             }
             return state

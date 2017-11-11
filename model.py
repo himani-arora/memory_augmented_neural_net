@@ -80,7 +80,7 @@ class NTMOneShotLearningModel():
                                     output_dim=args.output_dim)
         elif args.model == 'MANN':
             import mann_cell as mann_cell
-            cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim,
+            cell = mann_cell.MANNCell(args.rnn_size, args.memory_size, args.memory_vector_dim, args.output_dim, 
                                     head_num=args.read_head_num)
         elif args.model == 'MANN2':
             import mann_cell_2 as mann_cell
@@ -91,7 +91,7 @@ class NTMOneShotLearningModel():
         self.state_list = [state]   # For debugging
         self.o = []
         for t in range(args.seq_length):
-            output, state = cell(tf.concat([self.x_image[:, t, :], self.x_label[:, t, :]], axis=1), state)
+            output, state = cell(self.x_image[:, t, :], self.x_label[:, t, :], state)
             # output, state = cell(self.y[:, t, :], state)
             with tf.variable_scope("o2o", reuse=(t > 0)):
                 o2o_w = tf.get_variable('o2o_w', [output.get_shape()[1], args.output_dim],
